@@ -1,92 +1,96 @@
 // **********************************************
-// 1. IP მისამართის გარედან მოსაპოვებლად
-// **********************************************
-async function fetchIP() {
-    try {
-        // ვიყენებთ საჯარო API სერვისს გარე IP მისამართის მოსაპოვებლად (JSON ფორმატით)
-        const response = await fetch('https://api.ipify.org?format=json'); 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        
-        // ვავსებთ HTML-ის შესაბამის ველს
-        document.getElementById('public_ip').textContent = data.ip || 'ვერ მოხერხდა IP-ის მიღება'; 
-    } catch (error) {
-        document.getElementById('public_ip').textContent = 'შეცდომა: ვერ მოხერხდა IP-ის მიღება (API ან ინტერნეტის პრობლემა).';
-        console.error("IP Fetch Error:", error);
-    }
-}
-
-
-// **********************************************
-// 2. ბრაუზერის საბაზისო მონაცემების შეგროვებისთვის
+// 1. ბრაუზერის მონაცემების შეგროვება
 // **********************************************
 function collectBrowserData() {
-    try {
-        // User Agent
-        document.getElementById('user_agent').textContent = navigator.userAgent;
-        
-        // ეკრანის გარჩევადობა
-        document.getElementById('resolution').textContent = `${window.screen.width}x${window.screen.height} (შიდა: ${window.innerWidth}x${window.innerHeight})`;
-        
-        // ენა
-        document.getElementById('language').textContent = navigator.language;
-        
-        // დროის სარტყელი
-        document.getElementById('timezone').textContent = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    } catch (e) {
-        console.error("Browser Data Collection Error:", e);
-    }
+    // აგროვებს ყველა მონაცემს ობიექტში
+    return {
+        user_agent: navigator.userAgent,
+        resolution: `${window.screen.width}x${window.screen.height}`,
+        language: navigator.language,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        canvas_hash: generateCanvasFingerprint()
+    };
 }
 
-
 // **********************************************
-// 3. კანვასის ფინგერპრინტის გენერირება
+// 2. კანვასის ფინგერპრინტის გენერირება
 // **********************************************
 function generateCanvasFingerprint() {
-    const canvas = document.getElementById('fingerprintCanvas');
-    // შემოწმება, არსებობს თუ არა კანვასის ობიექტი
-    if (!canvas) {
-        document.getElementById('canvas_hash').textContent = 'შეცდომა: კანვასის ელემენტი ვერ მოიძებნა.';
-        return;
-    }
+    const canvas = document.createElement('canvas');
+    canvas.width = 200;
+    canvas.height = 50;
+    const ctx = canvas.getContext('2d');
     
-    try {
-        const ctx = canvas.getContext('2d');
-        
-        // გრაფიკული ოპერაციები, რომლებიც უნიკალური შედეგის მისაღებად გამოიყენება
-        ctx.textBaseline = "top";
-        ctx.font = "14px 'Arial'";
-        ctx.textBaseline = "alphabetic";
-        ctx.fillStyle = "#f60";
-        ctx.fillRect(125, 1, 62, 20);
-        ctx.fillStyle = "#069";
-        ctx.fillText("Test String for Fingerprinting 123", 2, 15);
-        
-        // პიქსელური მონაცემების Base64 სტრიქონში გადაყვანა
-        const dataURL = canvas.toDataURL();
-        
-        // ჰეშის ველის შევსება Base64 სტრიქონის ნაწილით (რომელიც უნიკალურობას უზრუნველყოფს)
-        document.getElementById('canvas_hash').textContent = dataURL.substring(0, 100) + '... (სრული ჰეში გრძელია)';
+    // რთული ნახატი
+    ctx.textBaseline = "top";
+    ctx.font = "14px 'Arial'";
+    ctx.fillStyle = "#f60";
+    ctx.fillRect(125, 1, 62, 20);
+    ctx.fillStyle = "#069";
+    ctx.fillText("Test String for Fingerprinting 123", 2, 15);
+    
+    // დაბრუნება Base64 სტრიქონში
+    return canvas.toDataURL();
+}
 
-    } catch (e) {
-        document.getElementById('canvas_hash').textContent = 'შეცდომა: ვერ მოხერხდა კანვასის რენდერინგი (დრაივერი/ბრაუზერის შეზღუდვა).';
-        console.error("Canvas Fingerprinting Error:", e);
+// **********************************************
+// 3. სერვერთან კომუნიკაცია და ისტორიის ჩვენება
+// **********************************************
+async function fetchDataAndDisplay() {
+    const browserData = collectBrowserData();
+
+    try {
+        const response = await fetch('/api/get-data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(browserData)
+        });
+
+        const data = await response.json();
+        const current = data.current_visit;
+        const history = data.history;
+
+        // აჩვენეთ მიმდინარე მონაცემები
+        document.getElementById('public_ip').textContent = current.public_ip;
+        document.getElementById('geolocation').textContent = 
+            `ქვეყანა: ${current.geolocation.country || 'N/A'}, ISP: ${current.geolocation.isp || 'N/A'}`;
+        document.getElementById('user_agent').textContent = current.user_agent;
+        document.getElementById('resolution').textContent = current.resolution;
+        document.getElementById('language').textContent = current.language;
+        document.getElementById('timezone').textContent = current.timezone;
+        document.getElementById('canvas_hash').textContent = current.canvas_hash.substring(0, 100) + '...';
+
+        // აჩვენეთ ისტორია (დაგჭირდებათ ისტორიის ბლოკი HTML-ში)
+        displayHistory(history);
+
+    } catch (error) {
+        console.error("Data Fetch Error:", error);
+        document.getElementById('public_ip').textContent = 'შეცდომა: ვერ დაუკავშირდა სერვერს.';
     }
+}
+
+// ისტორიის ჩვენების ფუნქცია (უბრალო მაგალითი)
+function displayHistory(history) {
+    const historyElement = document.getElementById('history_log');
+    if (!historyElement) return;
+
+    historyElement.innerHTML = '<h3>ბოლო 5 ვიზიტი:</h3>';
+    history.slice(0, 5).forEach((item, index) => {
+        historyElement.innerHTML += `
+            <p>
+                <strong>№${index + 1} (${item.timestamp}):</strong> 
+                IP: ${item.public_ip}, 
+                ქვეყანა: ${item.geolocation.country}, 
+                ჰეში: ${item.canvas_hash ? item.canvas_hash.substring(0, 20) + '...' : 'N/A'}
+            </p>
+        `;
+    });
 }
 
 
 // **********************************************
-// 4. ყველა ფუნქციის გაშვება გვერდის ჩატვირთვისას
+// 4. გაშვება
 // **********************************************
-document.addEventListener('DOMContentLoaded', () => {
-    // 1. იტვირთება ბრაუზერის მონაცემები
-    collectBrowserData();
-    
-    // 2. იტვირთება კანვასის ფინგერპრინტი
-    generateCanvasFingerprint();
-    
-    // 3. იტვირთება გარე IP მისამართი
-    fetchIP();
-});
+document.addEventListener('DOMContentLoaded', fetchDataAndDisplay);
